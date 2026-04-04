@@ -1496,10 +1496,20 @@
         // --- GEMINI INTEGRATION ---
         async function callAI(systemPrompt, userMessage, targetElementId, ) {
             const target = document.getElementById(targetElementId);
-            const apiKey = process.env.OPENAI_API_KEY;
+            const envConfig = "%VITE_OPENAI_API_KEY%";
+            let apiKey = null;
+
+            if (envConfig && !envConfig.startsWith("%")) {
+                apiKey = envConfig;
+            } else if (typeof process !== "undefined" && process.env && process.env.OPENAI_API_KEY) {
+                apiKey = process.env.OPENAI_API_KEY; 
+            } else {
+                const config = JSON.parse(localStorage.getItem(DB_KEYS.CONFIG) || "{}");
+                apiKey = config.apiKey || null;
+            }
             
             if (!apiKey) {
-                if (target) target.innerText = "⚠️ API Key de OpenAI no encontrada. Configúrala en el entorno.";
+                if (target) target.innerText = "⚠️ API Key de OpenAI no encontrada. Configúrala en el entorno o en Ajustes.";
                 return null;
             }
 
