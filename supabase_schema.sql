@@ -7,7 +7,7 @@ create extension if not exists "uuid-ossp";
 create table if not exists public.profiles (
     id uuid references auth.users on delete cascade primary key,
     shop_name text,
-    gemini_api_key text,
+    openai_api_key text,
     tax_rate numeric default 16,
     labor_rate numeric default 20,
     currency text default 'MXN',

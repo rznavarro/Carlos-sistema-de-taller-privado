@@ -1087,9 +1087,62 @@
         #toast.visible {
             transform: translateX(-50%) translateY(0);
         }
+        /* Access Screen */
+        #access-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: var(--bg-primary);
+            z-index: 99999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .access-box {
+            background: var(--bg-secondary);
+            padding: 60px;
+            border: 1px solid var(--accent-gold);
+            text-align: center;
+            box-shadow: 0 0 40px rgba(176, 141, 87, 0.1);
+            max-width: 400px;
+            width: 90%;
+        }
+        .access-box h2 {
+            font-family: var(--f-display);
+            font-size: 32px;
+            color: var(--accent-gold);
+            margin-bottom: 24px;
+            font-style: italic;
+        }
+        .access-box input {
+            text-align: center;
+            font-size: 24px;
+            letter-spacing: 0.5em;
+            margin-bottom: 32px;
+            background: transparent;
+            color: var(--text-primary);
+            border: none;
+            border-bottom: 1px solid var(--accent-gold);
+            outline: none;
+            padding: 10px;
+            width: 100%;
+        }
+        .app-container.locked { display: none !important; }
     </style>
 </head>
 <body>
+    <div id="access-screen" style="display: none;">
+        <div class="access-box">
+            <h2>Acceso Restringido</h2>
+            <p style="font-family: var(--f-mono); font-size: 10px; color: var(--text-muted); margin-bottom: 32px; letter-spacing: 0.2em;">INGRESE EL CÓDIGO MAESTRO</p>
+            <input type="password" id="access-code-input" placeholder="****" maxlength="4">
+            <button class="btn btn-primary" id="btn-submit-code" style="width: 100%;">ENTRAR</button>
+            <p id="access-error" style="color: var(--signal-empty); font-family: var(--f-mono); font-size: 10px; margin-top: 16px; opacity: 0; transition: opacity 0.3s;">CÓDIGO INCORRECTO</p>
+        </div>
+    </div>
     <div class="noise-overlay"></div>
 
     <svg style="display: none;">
@@ -1101,7 +1154,7 @@
         </filter>
     </svg>
 
-    <div class="app-container">
+    <div class="app-container locked" id="main-app-container">
         <header id="main-header">
             <div class="header-top">
                 <div class="logo-group">
@@ -2309,8 +2362,7 @@
             });
         });
 
-        // --- INITIALIZATION ---
-        window.onload = () => {
+        function startApp() {
             initDB();
             renderModule('panel');
             
@@ -2322,7 +2374,37 @@
                     setTimeout(() => c.classList.add('visible'), i * 50);
                 });
             }, 300);
+        }
+
+        // --- INITIALIZATION ---
+        window.onload = () => {
+            if (sessionStorage.getItem('access_granted') === 'true') {
+                document.getElementById('main-app-container').classList.remove('locked');
+                startApp();
+            } else {
+                document.getElementById('access-screen').style.display = 'flex';
+                document.getElementById('access-code-input').focus();
+            }
         };
+
+        document.getElementById('btn-submit-code').addEventListener('click', () => {
+            const code = document.getElementById('access-code-input').value;
+            if (code === '0000') {
+                sessionStorage.setItem('access_granted', 'true');
+                document.getElementById('access-screen').style.display = 'none';
+                document.getElementById('main-app-container').classList.remove('locked');
+                startApp();
+            } else {
+                const err = document.getElementById('access-error');
+                err.style.opacity = '1';
+                setTimeout(() => err.style.opacity = '0', 3000);
+                document.getElementById('access-code-input').value = '';
+            }
+        });
+
+        document.getElementById('access-code-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') document.getElementById('btn-submit-code').click();
+        });
 
         // Export functions to global scope for inline event handlers
         window.updateItem = updateItem;
