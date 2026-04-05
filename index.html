@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CARLOS — Sistema de Taller Privado</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@400;500&family=Libre+Baskerville:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
@@ -1537,12 +1538,49 @@
             }
         };
 
-        function initDB() {
+        // Setup Supabase
+        const supabaseUrl = 'https://dwnzysxtizwzepmpxpyk.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3bnp5c3h0aXp3emVwbXB4cHlrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MTI1MzksImV4cCI6MjA5MDk4ODUzOX0.BZMUWBPui-lR7xBQbMGufB045psDIhaT7ea332-1KQE';
+        const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+
+        async function initDB() {
             if (!localStorage.getItem(DB_KEYS.CONFIG)) {
                 localStorage.setItem(DB_KEYS.CONFIG, JSON.stringify(DEMO_DATA.CONFIG));
-                localStorage.setItem(DB_KEYS.MATERIALES, JSON.stringify(DEMO_DATA.MATERIALES));
-                localStorage.setItem(DB_KEYS.MOVIMIENTOS, JSON.stringify(DEMO_DATA.MOVIMIENTOS));
-                localStorage.setItem(DB_KEYS.COTIZACIONES, JSON.stringify(DEMO_DATA.COTIZACIONES));
+                localStorage.setItem(DB_KEYS.MATERIALES, JSON.stringify([]));
+                localStorage.setItem(DB_KEYS.MOVIMIENTOS, JSON.stringify([]));
+                localStorage.setItem(DB_KEYS.COTIZACIONES, JSON.stringify([]));
+            }
+            
+            try {
+                // Sincronizar desde Supabase
+                const { data: mats } = await supabaseClient.from('materials').select('*');
+                if (mats) {
+                    const localMats = mats.map(m => ({
+                        id: m.id, nombre: m.nombre, tipo: m.tipo, espesor: m.espesor,
+                        stockM2: Number(m.stock_m2), stockMinimoM2: Number(m.stock_minimo_m2),
+                        precioVentaM2: Number(m.precio_venta_m2)
+                    }));
+                    localStorage.setItem(DB_KEYS.MATERIALES, JSON.stringify(localMats));
+                }
+
+                const { data: movs } = await supabaseClient.from('movements').select('*');
+                if (movs) {
+                    localStorage.setItem(DB_KEYS.MOVIMIENTOS, JSON.stringify(movs));
+                }
+
+                const { data: qts } = await supabaseClient.from('quotes').select('*, quote_items(*)');
+                if (qts) {
+                    const localQts = qts.map(q => ({
+                        id: q.id, clienteNombre: q.cliente_nombre, clienteTelefono: q.cliente_telefono,
+                        descripcionObra: q.descripcion_obra, subtotal: Number(q.subtotal),
+                        labor: Number(q.labor), tax: Number(q.tax), total: Number(q.total),
+                        estado: q.estado, notesIA: q.notes_ia, creadaEn: q.creada_en,
+                        items: q.quote_items || []
+                    }));
+                    localStorage.setItem(DB_KEYS.COTIZACIONES, JSON.stringify(localQts));
+                }
+            } catch (err) {
+                console.error("Error sincro inicial", err);
             }
         }
 
@@ -1562,9 +1600,10 @@
         }
 
         function generateId(prefix) {
-            const d = new Date().toISOString().slice(0,10).replace(/-/g,'');
-            const r = Math.random().toString(36).slice(2,5).toUpperCase();
-            return `${prefix}-${d}-${r}`;
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
         }
 
         // --- NAVIGATION ---
@@ -1948,7 +1987,7 @@
         }
 
         function deleteQuote(id) {
-            showConfirm('¿Estás seguro de que deseas eliminar esta cotización? Esta acción no se puede deshacer.', () => {
+            showConfirm('¿Estás seguro de que deseas eliminar esta cotización? Esta acción no se puede deshacer.', async () => {
                 const cots = getData(DB_KEYS.COTIZACIONES);
                 const filtered = cots.filter(c => c.id !== id);
                 saveData(DB_KEYS.COTIZACIONES, filtered);
@@ -1957,6 +1996,9 @@
                     document.getElementById('btn-new-quote').click();
                 }
                 renderQuoteHistory(currentQuoteFilter);
+                
+                // Supabase delete
+                await supabaseClient.from('quotes').delete().eq('id', id);
                 showToast('✓ Cotización eliminada.');
             });
         }
@@ -2019,10 +2061,12 @@
             const m = mats.find(x => x.id === id);
             if (!m) return;
             
-            showConfirm(`¿Estás seguro de eliminar "${m.nombre}"?`, () => {
+            showConfirm(`¿Estás seguro de eliminar "${m.nombre}"?`, async () => {
                 const filtered = mats.filter(x => x.id !== id);
                 saveData(DB_KEYS.MATERIALES, filtered);
                 renderMaterials();
+                
+                await supabaseClient.from('materials').delete().eq('id', id);
                 showToast('Material eliminado');
             });
         }
@@ -2036,7 +2080,7 @@
             document.getElementById('create-material-modal').style.display = 'none';
         });
 
-        document.getElementById('btn-save-material').addEventListener('click', () => {
+        document.getElementById('btn-save-material').addEventListener('click', async () => {
             const nombre = document.getElementById('new-mat-nombre').value;
             const tipo = document.getElementById('new-mat-tipo').value;
             const espesor = document.getElementById('new-mat-espesor').value;
@@ -2073,7 +2117,12 @@
             document.getElementById('new-mat-price').value = '100';
 
             renderMaterials();
-            showToast('Material creado con éxito');
+            showToast('Material guardando en la nube...');
+            
+            await supabaseClient.from('materials').insert([{
+                id: newMat.id, nombre, tipo, espesor, stock_m2: stock, stock_minimo_m2: min, precio_venta_m2: price
+            }]);
+            showToast('✓ Material creado con éxito');
         });
 
         function adjustStock(id) {
@@ -2093,7 +2142,7 @@
             document.getElementById('adjust-stock-modal').style.display = 'none';
         });
 
-        document.getElementById('btn-save-adjust').addEventListener('click', () => {
+        document.getElementById('btn-save-adjust').addEventListener('click', async () => {
             const id = document.getElementById('adjust-stock-id').value;
             const val = parseFloat(document.getElementById('adjust-stock-val').value);
             
@@ -2104,6 +2153,8 @@
                     m.stockM2 += val;
                     saveData(DB_KEYS.MATERIALES, mats);
                     renderMaterials();
+                    
+                    await supabaseClient.from('materials').update({ stock_m2: m.stockM2 }).eq('id', id);
                 }
             }
             document.getElementById('adjust-stock-modal').style.display = 'none';
@@ -2145,19 +2196,21 @@
             });
         });
 
-        document.getElementById('btn-register-cash').addEventListener('click', () => {
+        document.getElementById('btn-register-cash').addEventListener('click', async () => {
             const amount = parseFloat(document.getElementById('cash-amount').value);
             if (!amount) return;
             
             const movs = getData(DB_KEYS.MOVIMIENTOS);
-            movs.push({
+            const currentMov = {
                 id: generateId('MOV'),
                 tipo: currentCashType,
                 monto: amount,
                 categoria: currentCashCat,
                 descripcion: document.getElementById('cash-desc').value,
                 fecha: new Date().toISOString()
-            });
+            };
+            
+            movs.push(currentMov);
             saveData(DB_KEYS.MOVIMIENTOS, movs);
             
             // Reset form
@@ -2174,6 +2227,8 @@
                 btn.innerText = oldText;
                 btn.style.color = '';
             }, 2000);
+            
+            await supabaseClient.from('movements').insert([currentMov]);
         });
 
         document.getElementById('btn-add-item').addEventListener('click', addItemRow);
@@ -2190,7 +2245,7 @@
             showToast('✓ Formulario listo para nueva cotización.');
         });
 
-        function saveQuote(status = 'borrador') {
+        async function saveQuote(status = 'borrador') {
             const config = JSON.parse(localStorage.getItem(DB_KEYS.CONFIG));
             const cots = getData(DB_KEYS.COTIZACIONES);
             const subtotal = currentQuoteItems.reduce((acc, i) => acc + i.total, 0);
@@ -2203,7 +2258,7 @@
                 clienteNombre: document.getElementById('q-client-name').value || 'Cliente Nuevo',
                 clienteTelefono: document.getElementById('q-client-phone').value,
                 descripcionObra: document.getElementById('q-work-desc').value || 'Sin descripción',
-                items: [...currentQuoteItems],
+                items: [...currentQuoteItems].map(i => ({...i, id: i.id || generateId('IT')})),
                 subtotal, labor, tax, total,
                 estado: status,
                 creadaEn: new Date().toISOString(),
@@ -2217,7 +2272,25 @@
             saveData(DB_KEYS.COTIZACIONES, cots);
             activeQuoteId = quoteData.id;
             renderQuoteHistory(currentQuoteFilter);
-            showToast(`✓ Cotización guardada como ${status}.`);
+            showToast(`✓ Cotización guardada como ${status}. Sincronizando a la nube...`);
+            
+            // Supabase Header Insert
+            await supabaseClient.from('quotes').upsert([{
+                id: quoteData.id, cliente_nombre: quoteData.clienteNombre, cliente_telefono: quoteData.clienteTelefono,
+                descripcion_obra: quoteData.descripcionObra, subtotal: quoteData.subtotal, labor: quoteData.labor,
+                tax: quoteData.tax, total: quoteData.total, estado: quoteData.estado, notes_ia: quoteData.notesIA,
+                creada_en: quoteData.creadaEn
+            }]);
+            
+            // Supabase Items Refresh
+            await supabaseClient.from('quote_items').delete().eq('quote_id', quoteData.id);
+            if (quoteData.items.length > 0) {
+                const sbItems = quoteData.items.map(i => ({
+                    id: i.id, quote_id: quoteData.id, tipo: i.tipo, espesor: i.espesor,
+                    ancho: i.ancho, alto: i.alto, cant: i.cant, price: i.price
+                }));
+                await supabaseClient.from('quote_items').insert(sbItems);
+            }
         }
 
         document.getElementById('btn-save-quote').addEventListener('click', () => saveQuote('borrador'));
@@ -2362,8 +2435,8 @@
             });
         });
 
-        function startApp() {
-            initDB();
+        async function startApp() {
+            await initDB(); // Wait for Supabase to sync
             renderModule('panel');
             
             // Animations
